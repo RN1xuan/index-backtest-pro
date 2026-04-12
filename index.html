@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>指数多模式策略回测系统</title>
+    <title>指数策略回测系统 </title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -53,7 +53,15 @@
 
     <div class="card">
         <div class="control-grid" style="border-bottom: 1px solid #eee; padding-bottom: 16px;">
-            <div class="form-group"><label>1. 上传数据 (.xlsx/.csv)</label><input type="file" id="dataFile" accept=".xlsx, .xls, .csv"></div>
+            <div class="form-group">
+                <label>1. 输入代码自动云端拉取</label>
+                <div style="display: flex; gap: 8px;">
+                    <input type="text" id="stockCode" value="sh000300" placeholder="如: sh000300" style="flex: 1; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color);">
+                    <button class="btn" style="margin-top: 0; width: 100px; padding: 10px;" onclick="fetchDataFromAPI()">云端拉取</button>
+                </div>
+                <div style="font-size: 0.75rem; color: #9ca3af; margin-top: 4px;">注：沪市加 sh (如 sh000300)，深市加 sz (如 sz399006)</div>
+            </div>
+
             <div class="form-group">
                 <label>2. 交易核心模式</label>
                 <select id="tradeMode" onchange="toggleInputs()">
@@ -103,31 +111,25 @@
                 🛡️ 开启按比例自动止盈 (当持仓达到目标收益时，自动卖出部分换成现金备用)
             </label>
             <div class="control-grid tp-details" id="tpDetailsPanel" style="margin-top: 12px; margin-bottom: 0;">
-                <div class="form-group">
-                    <label>触发止盈目标收益率 (%)</label>
-                    <input type="number" id="tpThreshold" value="15" step="1" title="例如：当持仓平均收益率达到15%时触发卖出">
-                </div>
-                <div class="form-group">
-                    <label>触发时卖出仓位比例 (%)</label>
-                    <input type="number" id="tpRatio" value="50" step="5" max="100" title="例如：50代表卖出一半；100代表全部清仓">
-                </div>
+                <div class="form-group"><label>触发止盈目标收益率 (%)</label><input type="number" id="tpThreshold" value="15" step="1"></div>
+                <div class="form-group"><label>触发时卖出仓位比例 (%)</label><input type="number" id="tpRatio" value="50" step="5" max="100"></div>
             </div>
         </div>
 
         <button class="btn" id="runBtn" disabled onclick="runSimulation()">🚀 开始回测</button>
-        <div id="loading">数据解析中，请稍候...</div>
+        <div id="loading">📡 数据拉取中，请稍候...</div>
     </div>
 
     <div class="stats-grid" id="statsPanel" style="display: none;">
         <div class="stat-box"><div>真金白银投入本金</div><div class="stat-value" id="resInvested">0.00</div></div>
-        <div class="stat-box"><div>期末总资产 (持仓+现金池)</div><div class="stat-value" id="resValue">0.00</div></div>
+        <div class="stat-box"><div>期末总资产 (持仓+现金)</div><div class="stat-value" id="resValue">0.00</div></div>
         <div class="stat-box profit"><div>绝对净收益额</div><div class="stat-value" id="resProfit">0.00</div></div>
         <div class="stat-box profit"><div>真实本金收益率</div><div class="stat-value" id="resRate">0.00%</div></div>
         <div class="stat-box"><div>可用空闲现金池</div><div class="stat-value" id="resCash" style="color: #10b981;">0.00</div></div>
     </div>
 
     <div class="card" id="chartsCard" style="display: none;">
-        <div class="chart-title">📊 指数走势与买卖点 (🔴红点买入，🟢绿点止盈)</div>
+        <div class="chart-title">📊 指数走势与买卖点 (🔴买入，🟢止盈)</div>
         <div class="chart-container"><canvas id="indexChart"></canvas></div>
         <hr style="margin: 40px 0; border: 0; border-top: 1px solid #eee;">
         <div class="chart-title">🆚 策略收益率 vs 指数涨跌幅</div>
@@ -166,7 +168,6 @@
         document.getElementById('swingControls').style.display = mode === 'swing' ? 'grid' : 'none';
         document.getElementById('dcaControls').style.display = mode === 'dca' ? 'grid' : 'none';
         
-        // 如果是波段模式，隐藏自定义止盈（因为它自带清仓）
         document.getElementById('tpSection').style.display = mode === 'swing' ? 'none' : 'block';
 
         const descEl = document.getElementById('modeDesc');
@@ -176,48 +177,54 @@
         else descEl.innerHTML = "<strong>定期定额逻辑：</strong> 无视大盘涨跌，每隔固定交易日自动买入。";
     }
 
-    document.getElementById('dataFile').addEventListener('change', function(e) {
-        const file = e.target.files[0];
-        if (!file) return;
+    // 🔥 全新的云端 API 拉取数据逻辑
+    async function fetchDataFromAPI() {
+        let code = document.getElementById('stockCode').value.trim();
+        if (!code) return alert("请输入股票或指数代码！");
+        
         document.getElementById('loading').style.display = 'block';
         document.getElementById('runBtn').disabled = true;
 
-        const reader = new FileReader();
-        reader.onload = function(evt) {
-            const data = new Uint8Array(evt.target.result);
-            const workbook = XLSX.read(data, {type: 'array'});
-            const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-            const json = XLSX.utils.sheet_to_json(worksheet, {defval: ""});
-            parseData(json);
-        };
-        reader.readAsArrayBuffer(file);
-    });
+        try {
+            // 🔥 这里已经成功注入了您的专属 API 链接
+            const myApiUrl = "https://withered-surf-49c9.rn1xuan.workers.dev"; 
+            const requestUrl = `${myApiUrl}?code=${code}`;
 
-    function parseData(json) {
-        globalData = [];
-        if (json.length > 0) {
-            let firstRow = json[0];
-            indexNameFromData = firstRow['指数中文简称Index Chinese Name'] || firstRow['指数中文简称'] || firstRow['指数名称'] || "宽基指数";
-            document.getElementById('mainTitle').innerText = `📈 ${indexNameFromData} 回测系统 (含滚动止盈)`;
-        }
-        json.forEach(row => {
-            let dateStr = String(row['日期Date'] || row['日期'] || row['Date'] || '');
-            let close = parseFloat(row['收盘Close'] || row['收盘价'] || row['Close']);
-            let change = parseFloat(row['涨跌幅(%)Change(%)'] || row['涨跌幅'] || row['Change']);
-            if (dateStr && !isNaN(close) && !isNaN(change)) {
-                if(dateStr.length === 8 && !dateStr.includes('-')){ dateStr = `${dateStr.substring(0,4)}-${dateStr.substring(4,6)}-${dateStr.substring(6,8)}`; }
-                globalData.push({ dateObj: new Date(dateStr), dateStr: dateStr, close: close, change: change });
+            const response = await fetch(requestUrl);
+            if (!response.ok) throw new Error("网络请求失败");
+            
+            const jsonData = await response.json();
+            
+            if (jsonData.error) throw new Error(jsonData.error);
+
+            globalData = [];
+            jsonData.forEach(day => {
+                globalData.push({
+                    dateObj: new Date(day.date),
+                    dateStr: day.date,
+                    close: parseFloat(day.close),
+                    change: parseFloat(day.change)
+                });
+            });
+
+            document.getElementById('loading').style.display = 'none';
+            
+            if (globalData.length > 0) {
+                document.getElementById('runBtn').disabled = false;
+                indexNameFromData = code.toUpperCase(); 
+                document.getElementById('mainTitle').innerText = `📈 ${indexNameFromData} 回测系统 (云端版)`;
+                alert(`✅ ${indexNameFromData} 历史数据拉取成功！共加载 ${globalData.length} 个交易日数据。`);
+                
+                let prices = globalData.map(d => d.close);
+                let avgPrice = prices.reduce((a, b) => a + b, 0) / prices.length;
+                document.getElementById('s_buyPoint').value = Math.floor(avgPrice * 0.85); 
+                document.getElementById('s_sellPoint').value = Math.floor(avgPrice * 1.15); 
             }
-        });
-        globalData.sort((a, b) => a.dateObj - b.dateObj);
-        document.getElementById('loading').style.display = 'none';
-        if (globalData.length > 0) {
-            document.getElementById('runBtn').disabled = false;
-            let prices = globalData.map(d => d.close);
-            let avgPrice = prices.reduce((a, b) => a + b, 0) / prices.length;
-            document.getElementById('s_buyPoint').value = Math.floor(avgPrice * 0.85); 
-            document.getElementById('s_sellPoint').value = Math.floor(avgPrice * 1.15); 
-            alert(`✅ 数据加载成功！`);
+
+        } catch (error) {
+            document.getElementById('loading').style.display = 'none';
+            console.error(error);
+            alert(`❌ 数据拉取失败: ${error.message}\n提示：沪指请以 sh 开头 (如 sh000300)，深指以 sz 开头 (如 sz399006)`);
         }
     }
 
@@ -227,7 +234,6 @@
         const mode = document.getElementById('tradeMode').value;
         const years = parseInt(document.getElementById('simYears').value);
         
-        // 止盈参数
         const tpEnable = document.getElementById('tpEnable').checked && mode !== 'swing';
         const tpThresh = parseFloat(document.getElementById('tpThreshold').value);
         const tpRatio = parseFloat(document.getElementById('tpRatio').value);
@@ -237,16 +243,14 @@
         startDate.setFullYear(maxDate.getFullYear() - years);
         const simData = globalData.filter(d => d.dateObj >= startDate);
 
-        // 核心财务指标
-        let cumulativePrincipal = 0; // 真实外场充值的本金
-        let positionCost = 0;        // 当前持仓的成本核算（用于触发止盈）
-        let totalShares = 0;         // 持仓份额
-        let accountCash = 0;         // 闲置现金池 (止盈资金存放处)
+        let cumulativePrincipal = 0; 
+        let positionCost = 0;        
+        let totalShares = 0;         
+        let accountCash = 0;         
         
         let buyTimes = 0; let hasBoughtFirst = false; let tradeHistory = [];
         let r_firstDropMet = false; let r_subDropMet = false;   
 
-        // 获取参数
         let p = {};
         if(mode === 'left') {
             p.fDrop = parseFloat(document.getElementById('l_firstDrop').value); p.fAmt = parseFloat(document.getElementById('l_firstAmt').value);
@@ -267,22 +271,16 @@
 
         simData.forEach((day, index) => {
             let actionName = ""; let isBuyDay = false; let isSellDay = false;
-            let transactAmount = 0;  // 交易的资产额度
-            let injectPrincipal = 0; // 从外部投入的新钱
+            let transactAmount = 0;  
+            let injectPrincipal = 0; 
 
-            // ============================
-            // 第一步：检查是否触发主动止盈 (非波段模式)
-            // ============================
             if (tpEnable && totalShares > 0) {
                 let avgCost = positionCost / totalShares;
-                // 如果当前价格涨超成本目标
                 if (day.close >= avgCost * (1 + tpThresh / 100)) {
                     let sellShares = totalShares * (tpRatio / 100);
                     transactAmount = sellShares * day.close;
-                    accountCash += transactAmount; // 钱流入现金池
+                    accountCash += transactAmount; 
                     totalShares -= sellShares;
-                    
-                    // 重置剩余持仓的成本线到当前最新价，防止第二天无限连环卖出
                     positionCost = totalShares * day.close; 
                     
                     actionName = `🟢 达到目标, 止盈${tpRatio}%`;
@@ -292,9 +290,6 @@
                 }
             }
 
-            // ============================
-            // 第二步：检查买入/波段策略
-            // ============================
             let signalBuyAmt = 0;
             
             if (mode === 'swing') {
@@ -321,13 +316,12 @@
                 }
             }
 
-            // 执行买入 (优先扣除闲置现金，不够的再投新钱)
             if (signalBuyAmt > 0) {
                 let amountFromCash = Math.min(accountCash, signalBuyAmt);
                 injectPrincipal = signalBuyAmt - amountFromCash;
                 
                 accountCash -= amountFromCash;
-                cumulativePrincipal += injectPrincipal; // 只有从外部拿钱，真金白银投入才增加
+                cumulativePrincipal += injectPrincipal; 
                 positionCost += signalBuyAmt;
                 totalShares += signalBuyAmt / day.close;
                 
@@ -338,9 +332,6 @@
                 tradeHistory.push({ date: day.dateStr, close: day.close.toFixed(2), action: actionName, amount: transactAmount, cash: accountCash, totalInvest: cumulativePrincipal });
             }
 
-            // ============================
-            // 每日盘后结算数据记录
-            // ============================
             labels.push(day.dateStr);
             indexPointsData.push(day.close.toFixed(2));
 
@@ -348,11 +339,10 @@
             let currentPnl = currentAssetValue - cumulativePrincipal; 
             
             valueData.push(currentAssetValue.toFixed(2)); 
-            costData.push(cumulativePrincipal.toFixed(2)); // 这里现在画的是【真金白银投入】
+            costData.push(cumulativePrincipal.toFixed(2)); 
             
-            // 绘制红绿点
-            if (isSellDay) { buyPointRadiuses.push(7); buyPointColors.push('#10b981'); } // 绿点优先级高
-            else if (isBuyDay) { buyPointRadiuses.push(5); buyPointColors.push('#ef4444'); } // 红点
+            if (isSellDay) { buyPointRadiuses.push(7); buyPointColors.push('#10b981'); } 
+            else if (isBuyDay) { buyPointRadiuses.push(5); buyPointColors.push('#ef4444'); } 
             else { buyPointRadiuses.push(0); buyPointColors.push('transparent'); }
 
             let indexReturn = ((day.close - baseIndexClose) / baseIndexClose) * 100;
