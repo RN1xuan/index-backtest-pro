@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>指数策略回测系统 (智能搜索直连版)</title>
+    <title>指数策略回测系统 (全自动直连版)</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -26,7 +26,7 @@
         .btn:hover { background-color: #1d4ed8; }
         .btn:disabled { background-color: #93c5fd; cursor: not-allowed; }
         
-        /* 🔥 新增：下拉搜索框的精美样式 */
+        /* 🔥 全新设计的智能下拉框样式 */
         .search-wrapper { position: relative; flex: 1; }
         .suggest-list { 
             position: absolute; top: 100%; left: 0; right: 0; 
@@ -35,10 +35,8 @@
             max-height: 280px; overflow-y: auto; z-index: 50; 
             padding: 0; margin: 4px 0 0 0; list-style: none; display: none; 
         }
-        .suggest-list li { padding: 12px; border-bottom: 1px solid #f3f4f6; cursor: pointer; display: flex; justify-content: space-between; align-items: center; transition: background 0.2s;}
+        .suggest-list li { padding: 12px; border-bottom: 1px solid #f3f4f6; cursor: pointer; transition: background 0.2s;}
         .suggest-list li:hover { background-color: #eff6ff; }
-        .suggest-list li .s-name { font-weight: 600; color: #1f2937; }
-        .suggest-list li .s-code { font-size: 0.85rem; color: #6b7280; background: #f3f4f6; padding: 3px 8px; border-radius: 4px;}
         
         .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; margin-bottom: 24px; }
         .stat-box { background: #eff6ff; border-left: 4px solid var(--primary-color); padding: 16px; border-radius: 8px; }
@@ -63,22 +61,21 @@
 <body>
 
 <div class="container">
-    <h1 id="mainTitle">📈 指数策略回测系统 (智能版)</h1>
+    <h1 id="mainTitle">📈 智能策略回测系统 (极速直连版)</h1>
 
     <div class="card">
         <div class="control-grid" style="border-bottom: 1px solid #eee; padding-bottom: 16px;">
-            
             <div class="form-group" style="grid-column: span 2;">
                 <label>1. 搜索标的 (支持中文、拼音首字母、代码)</label>
                 <div style="display: flex; gap: 8px;">
                     <div class="search-wrapper">
-                        <input type="text" id="searchInput" placeholder="例如: 沪深300 / hs300 / 000300" style="width: 100%; box-sizing: border-box; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color);" oninput="debounceSearch()" onfocus="debounceSearch()">
+                        <input type="text" id="searchInput" placeholder="例如: 沪深300 / hs300 / 000300" style="width: 100%; box-sizing: border-box; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color);" oninput="debounceSearch()" onfocus="debounceSearch()" autocomplete="off" spellcheck="false">
                         <ul id="suggestList" class="suggest-list"></ul>
-                        <input type="hidden" id="stockCode" value="">
+                        <input type="hidden" id="stockCode" value="1.000300">
                     </div>
                     <button class="btn" style="margin-top: 0; width: 120px; padding: 10px;" id="pullBtn" onclick="fetchDataFromAPI()">极速拉取</button>
                 </div>
-                <div style="font-size: 0.75rem; color: #9ca3af; margin-top: 6px;">输入后请在下拉列表中点击选择，支持 A股 / 港股 / 美股 / ETF基金 / 各类指数</div>
+                <div style="font-size: 0.75rem; color: #9ca3af; margin-top: 6px;">输入后请在下拉列表中点击选择，完美支持 A股 / 港股 / 美股 / ETF基金 / 各类指数</div>
             </div>
 
             <div class="form-group">
@@ -174,7 +171,9 @@
     let compareChartInst = null; let valueChartInst = null; let indexChartInst = null;
     let indexNameFromData = "宽基指数"; 
 
-    // 🔥 智能模糊搜索核心逻辑 🔥
+    // ==========================================
+    // 🔥 核心升级1：东方财富原生智能模糊搜索
+    // ==========================================
     let searchTimeout = null;
 
     function debounceSearch() {
@@ -184,55 +183,61 @@
         
         if (!keyword) { list.style.display = 'none'; return; }
         
-        // 防抖：用户停止打字 300 毫秒后才去请求 API
+        // 防抖：停止打字 300ms 后发起跨域直连请求
         searchTimeout = setTimeout(() => {
+            const callbackName = 'suggest_cb_' + Math.round(1000000 * Math.random());
             const script = document.createElement('script');
-            // type: 11(A股),12(B股),31(港股),41(美股),71(指数),82(ETF基金)
-            script.src = `https://suggest3.sinajs.cn/suggest/type=11,12,31,41,71,82&key=${encodeURIComponent(keyword)}`;
-            script.onload = () => {
-                renderSuggests(window.suggestvalue);
-                document.head.removeChild(script); // 清理脚本痕迹
+            // 东财极速搜索接口 (type=14 支持搜各种股票/指数/基金)
+            script.src = `https://searchapi.eastmoney.com/api/suggest/get?input=${encodeURIComponent(keyword)}&type=14&token=D43BF722C8E33BDC906FB84D85E326E8&cb=${callbackName}`;
+            
+            window[callbackName] = function(data) {
+                delete window[callbackName];
+                document.head.removeChild(script);
+                renderSuggests(data);
             };
             document.head.appendChild(script);
         }, 300);
     }
 
-    function renderSuggests(dataStr) {
+    function renderSuggests(data) {
         const list = document.getElementById('suggestList');
         list.innerHTML = '';
-        if (!dataStr) { list.style.display = 'none'; return; }
         
-        const items = dataStr.split(';').filter(i => i);
-        if (items.length === 0) { list.style.display = 'none'; return; }
+        if (!data || !data.QuotationCodeTable || !data.QuotationCodeTable.Data || data.QuotationCodeTable.Data.length === 0) { 
+            list.style.display = 'none'; return; 
+        }
         
-        items.forEach(item => {
-            const parts = item.split(',');
-            if (parts.length >= 5) {
-                const code = parts[0];  // 如 sh000300
-                const name = parts[4] || parts[2]; // 如 沪深300
-                
-                const li = document.createElement('li');
-                li.innerHTML = `<span class="s-name">${name}</span><span class="s-code">${code}</span>`;
-                li.onclick = () => {
-                    document.getElementById('searchInput').value = `${name} (${code})`;
-                    document.getElementById('stockCode').value = code; // 悄悄把代码存起来给后端用
-                    list.style.display = 'none';
-                    document.getElementById('pullBtn').focus(); // 自动聚焦到拉取按钮
-                };
-                list.appendChild(li);
-            }
+        data.QuotationCodeTable.Data.forEach(item => {
+            const li = document.createElement('li');
+            li.innerHTML = `
+                <div style="display:flex; justify-content:space-between; width:100%;">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <span style="font-weight:600; color:#1f2937;">${item.Name}</span>
+                        <span style="font-size:0.85rem; background:#f3f4f6; padding:2px 6px; border-radius:4px; color:#4b5563;">${item.Code}</span>
+                    </div>
+                    <span style="font-size:0.8rem; color:#9ca3af;">${item.SecurityTypeName}</span>
+                </div>
+            `;
+            li.onclick = () => {
+                // 1. 将中文名显示到输入框
+                document.getElementById('searchInput').value = `${item.Name} (${item.Code})`;
+                // 2. 将能够被东财完美识别的内码 (如 1.000300) 悄悄存下来
+                document.getElementById('stockCode').value = item.QuoteID; 
+                list.style.display = 'none';
+                document.getElementById('pullBtn').focus();
+            };
+            list.appendChild(li);
         });
         list.style.display = 'block';
     }
 
-    // 点击空白处自动隐藏下拉框
+    // 点击页面其他地方，自动收起下拉框
     document.addEventListener('click', (e) => {
         if (!e.target.closest('.search-wrapper')) {
             document.getElementById('suggestList').style.display = 'none';
         }
     });
 
-    // 界面参数切换
     function toggleTP() {
         const isEnabled = document.getElementById('tpEnable').checked;
         const panel = document.getElementById('tpDetailsPanel');
@@ -254,28 +259,31 @@
         else descEl.innerHTML = "<strong>定期定额逻辑：</strong> 无视大盘涨跌，每隔固定交易日自动买入。";
     }
 
-    // 🔥 全新 JSONP 拉取历史数据逻辑
+    // ==========================================
+    // 🔥 核心升级2：容错率极高的底层拉取逻辑
+    // ==========================================
     function fetchDataFromAPI() {
         let inputVal = document.getElementById('searchInput').value.trim();
-        let code = document.getElementById('stockCode').value.trim();
+        let secid = document.getElementById('stockCode').value.trim();
 
-        // 容错：如果用户手敲了代码且没点下拉框，直接用他敲的字符去试
-        if (!inputVal.includes(code) && inputVal !== "") { code = inputVal; }
-        if (!code) return alert("请在下拉框中搜索并选择标的！");
+        // 智能判断：如果用户手动修改了输入框但没点下拉列表，强行通过正则匹配修复
+        let codePart = secid ? (secid.split('.')[1] || secid) : "";
+        if (!secid || (!inputVal.includes(codePart) && inputVal !== "")) {
+            let pureCode = inputVal.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+            if (pureCode.startsWith('sh')) { secid = `1.${pureCode.slice(2)}`; } 
+            else if (pureCode.startsWith('sz')) { secid = `0.${pureCode.slice(2)}`; } 
+            else if (pureCode.match(/^\d{6}$/)) {
+                if (pureCode.startsWith('6') || pureCode === '000300' || pureCode === '000001') secid = `1.${pureCode}`;
+                else secid = `0.${pureCode}`;
+            } else {
+                return alert("⚠️ 请务必在下拉搜索列表中【点击选择】正确的标的！\n（如果您是纯手工敲击代码，请务必带上 sh 或 sz 前缀，例如 sh000300）");
+            }
+        }
 
         document.getElementById('loading').style.display = 'block';
         document.getElementById('runBtn').disabled = true;
 
-        let secid = "";
-        let lowerCode = code.toLowerCase();
-        if (lowerCode.startsWith('sh')) { secid = `1.${lowerCode.slice(2)}`; } 
-        else if (lowerCode.startsWith('sz')) { secid = `0.${lowerCode.slice(2)}`; } 
-        else {
-            if (lowerCode.startsWith('6') || lowerCode === '000300' || lowerCode === '000001') secid = `1.${lowerCode}`;
-            else secid = `0.${lowerCode}`;
-        }
-
-        const callbackName = 'jsonp_callback_' + Math.round(1000000 * Math.random());
+        const callbackName = 'jsonp_kline_' + Math.round(1000000 * Math.random());
         const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59&klt=101&fqt=1&end=20500101&lmt=2000&cb=${callbackName}`;
         const script = document.createElement('script');
 
@@ -285,7 +293,7 @@
 
             try {
                 if (!data || !data.data || !data.data.klines || data.data.klines.length === 0) {
-                    throw new Error("查无此代码");
+                    throw new Error("无数据返回");
                 }
 
                 globalData = [];
@@ -297,7 +305,7 @@
                         dateObj: new Date(parts[0]),
                         dateStr: parts[0],
                         close: parseFloat(parts[2]),
-                        change: parseFloat(parts[8]) 
+                        change: parseFloat(parts[8]) // 东财自带官方前复权涨跌幅
                     });
                 }
 
@@ -305,15 +313,16 @@
 
                 if (globalData.length > 0) {
                     document.getElementById('runBtn').disabled = false;
-                    indexNameFromData = data.data.name || code.toUpperCase();
+                    indexNameFromData = data.data.name || inputVal;
                     
-                    // 如果有()括号，只取前面的中文名
-                    let displayName = document.getElementById('searchInput').value.split(' (')[0];
+                    // 让界面标题直接显示漂亮的中文名
+                    let displayName = inputVal.split(' (')[0];
                     if(!displayName || displayName.match(/^[a-zA-Z0-9]+$/)) displayName = indexNameFromData;
 
-                    document.getElementById('mainTitle').innerText = `📈 ${displayName} 策略回测系统`;
+                    document.getElementById('mainTitle').innerText = `📈 ${displayName} 回测系统 (直连版)`;
                     alert(`✅ 获取成功！成功拉取【${displayName}】历史数据。`);
 
+                    // 自动重置波段预测点位
                     let prices = globalData.map(d => d.close);
                     let avgPrice = prices.reduce((a, b) => a + b, 0) / prices.length;
                     document.getElementById('s_buyPoint').value = Math.floor(avgPrice * 0.85);
@@ -321,7 +330,7 @@
                 }
             } catch (e) {
                 document.getElementById('loading').style.display = 'none';
-                alert(`❌ 获取失败: 该标的可能刚上市或代码错误。`);
+                alert(`❌ 获取失败: 该标的可能刚上市，或者代码格式不正确。`);
             }
         };
 
@@ -333,7 +342,9 @@
         script.src = url; document.body.appendChild(script);
     }
 
-    // 回测核心逻辑
+    // ==========================================
+    // 以下为核心回测及图表渲染逻辑 (保持纯正配方)
+    // ==========================================
     function runSimulation() {
         if (globalData.length === 0) return;
 
@@ -488,7 +499,6 @@
     }
 
     function renderCharts(labels, indexPointsData, radiuses, pointColors, stratReturn, idxReturn, valData, costData) {
-        // 取当前搜索框的名字用于图表展示
         let displayName = document.getElementById('searchInput').value.split(' (')[0];
         if(!displayName || displayName.match(/^[a-zA-Z0-9]+$/)) displayName = "标的";
 
