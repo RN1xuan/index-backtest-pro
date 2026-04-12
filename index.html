@@ -175,6 +175,51 @@
     // 🔥 核心升级1：东方财富原生智能模糊搜索
     // ==========================================
     let searchTimeout = null;
+    // ==========================================
+    // 补充缺失的：防抖函数与东方财富搜索接口调用
+    // ==========================================
+    function debounceSearch() {
+        // 清除上一次的定时器（防抖核心：用户连续输入时不发请求）
+        if (searchTimeout) clearTimeout(searchTimeout);
+        
+        // 设置新的定时器，延迟 300 毫秒后执行真正的搜索
+        searchTimeout = setTimeout(() => {
+            fetchSuggestions();
+        }, 300);
+    }
+
+    function fetchSuggestions() {
+        const keyword = document.getElementById('searchInput').value.trim();
+        const list = document.getElementById('suggestList');
+        
+        // 如果输入为空，隐藏下拉列表并退出
+        if (!keyword) {
+            list.style.display = 'none';
+            return;
+        }
+
+        // 使用 JSONP 跨域请求东方财富的搜索建议接口
+        const callbackName = 'jsonp_suggest_' + Math.round(1000000 * Math.random());
+        // 这是东方财富公开的搜索建议 API，token 为固定公用 token
+        const url = `https://searchapi.eastmoney.com/api/suggest/get?input=${encodeURIComponent(keyword)}&type=14&token=D43BF722C8E33BDC906FB84D85E326E8&count=10&cb=${callbackName}`;
+        
+        const script = document.createElement('script');
+
+        window[callbackName] = function(data) {
+            delete window[callbackName];
+            document.body.removeChild(script);
+            // 请求成功后，调用代码中原有的 renderSuggests 函数渲染列表
+            renderSuggests(data);
+        };
+
+        script.onerror = function() {
+            delete window[callbackName];
+            document.body.removeChild(script);
+        };
+
+        script.src = url;
+        document.body.appendChild(script);
+    }
 
 // 1. 优化后的渲染函数：确保显示所有匹配项
 function renderSuggests(data) {
