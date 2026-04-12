@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>指数策略回测系统 </title>
+    <title>指数策略回测系统 (全自动直连版)</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -49,15 +49,15 @@
 <body>
 
 <div class="container">
-    <h1 id="mainTitle">📈 指数策略回测系统</h1>
+    <h1 id="mainTitle">📈 指数策略回测系统 (全自动直连版)</h1>
 
     <div class="card">
         <div class="control-grid" style="border-bottom: 1px solid #eee; padding-bottom: 16px;">
             <div class="form-group">
-                <label>1. 输入代码自动云端拉取</label>
+                <label>1. 输入代码自动极速拉取</label>
                 <div style="display: flex; gap: 8px;">
                     <input type="text" id="stockCode" value="sh000300" placeholder="如: sh000300" style="flex: 1; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color);">
-                    <button class="btn" style="margin-top: 0; width: 100px; padding: 10px;" onclick="fetchDataFromAPI()">云端拉取</button>
+                    <button class="btn" style="margin-top: 0; width: 100px; padding: 10px;" onclick="fetchDataFromAPI()">极速拉取</button>
                 </div>
                 <div style="font-size: 0.75rem; color: #9ca3af; margin-top: 4px;">注：沪市加 sh (如 sh000300)，深市加 sz (如 sz399006)</div>
             </div>
@@ -117,7 +117,7 @@
         </div>
 
         <button class="btn" id="runBtn" disabled onclick="runSimulation()">🚀 开始回测</button>
-        <div id="loading">📡 数据拉取中，请稍候...</div>
+        <div id="loading">📡 数据极速拉取中，请稍候...</div>
     </div>
 
     <div class="stats-grid" id="statsPanel" style="display: none;">
@@ -167,7 +167,6 @@
         document.getElementById('rightControls').style.display = mode === 'right' ? 'grid' : 'none';
         document.getElementById('swingControls').style.display = mode === 'swing' ? 'grid' : 'none';
         document.getElementById('dcaControls').style.display = mode === 'dca' ? 'grid' : 'none';
-        
         document.getElementById('tpSection').style.display = mode === 'swing' ? 'none' : 'block';
 
         const descEl = document.getElementById('modeDesc');
@@ -177,55 +176,90 @@
         else descEl.innerHTML = "<strong>定期定额逻辑：</strong> 无视大盘涨跌，每隔固定交易日自动买入。";
     }
 
-    // 🔥 全新的云端 API 拉取数据逻辑
-    async function fetchDataFromAPI() {
+    // 🔥 全新 JSONP 黑科技拉取逻辑：完美绕过 CORS 和防火墙
+    function fetchDataFromAPI() {
         let code = document.getElementById('stockCode').value.trim();
         if (!code) return alert("请输入股票或指数代码！");
-        
+
         document.getElementById('loading').style.display = 'block';
         document.getElementById('runBtn').disabled = true;
 
-        try {
-            // 🔥 这里已经成功注入了您的专属 API 链接
-            const myApiUrl = "https://withered-surf-49c9.rn1xuan.workers.dev"; 
-            const requestUrl = `${myApiUrl}?code=${code}`;
-
-            const response = await fetch(requestUrl);
-            if (!response.ok) throw new Error("网络请求失败");
-            
-            const jsonData = await response.json();
-            
-            if (jsonData.error) throw new Error(jsonData.error);
-
-            globalData = [];
-            jsonData.forEach(day => {
-                globalData.push({
-                    dateObj: new Date(day.date),
-                    dateStr: day.date,
-                    close: parseFloat(day.close),
-                    change: parseFloat(day.change)
-                });
-            });
-
-            document.getElementById('loading').style.display = 'none';
-            
-            if (globalData.length > 0) {
-                document.getElementById('runBtn').disabled = false;
-                indexNameFromData = code.toUpperCase(); 
-                document.getElementById('mainTitle').innerText = `📈 ${indexNameFromData} 回测系统 (云端版)`;
-                alert(`✅ ${indexNameFromData} 历史数据拉取成功！共加载 ${globalData.length} 个交易日数据。`);
-                
-                let prices = globalData.map(d => d.close);
-                let avgPrice = prices.reduce((a, b) => a + b, 0) / prices.length;
-                document.getElementById('s_buyPoint').value = Math.floor(avgPrice * 0.85); 
-                document.getElementById('s_sellPoint').value = Math.floor(avgPrice * 1.15); 
+        // 智能推断东方财富的代码规则
+        let secid = "";
+        let lowerCode = code.toLowerCase();
+        if (lowerCode.startsWith('sh')) {
+            secid = `1.${lowerCode.slice(2)}`;
+        } else if (lowerCode.startsWith('sz')) {
+            secid = `0.${lowerCode.slice(2)}`;
+        } else {
+            if (lowerCode.startsWith('6') || lowerCode === '000300' || lowerCode === '000001') {
+                secid = `1.${lowerCode}`;
+            } else {
+                secid = `0.${lowerCode}`;
             }
-
-        } catch (error) {
-            document.getElementById('loading').style.display = 'none';
-            console.error(error);
-            alert(`❌ 数据拉取失败: ${error.message}\n提示：沪指请以 sh 开头 (如 sh000300)，深指以 sz 开头 (如 sz399006)`);
         }
+
+        // 生成唯一的 JSONP 回调名称
+        const callbackName = 'jsonp_callback_' + Math.round(1000000 * Math.random());
+        const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59&klt=101&fqt=1&end=20500101&lmt=2000&cb=${callbackName}`;
+
+        const script = document.createElement('script');
+
+        // 设定全局回调来接收数据
+        window[callbackName] = function(data) {
+            delete window[callbackName]; 
+            document.body.removeChild(script);
+
+            try {
+                if (!data || !data.data || !data.data.klines || data.data.klines.length === 0) {
+                    throw new Error("查无此代码，请检查输入格式");
+                }
+
+                globalData = [];
+                const klines = data.data.klines;
+
+                for (let i = 0; i < klines.length; i++) {
+                    const parts = klines[i].split(',');
+                    globalData.push({
+                        dateObj: new Date(parts[0]),
+                        dateStr: parts[0],
+                        close: parseFloat(parts[2]),
+                        change: parseFloat(parts[8]) // 东财自带涨跌幅数据
+                    });
+                }
+
+                document.getElementById('loading').style.display = 'none';
+
+                if (globalData.length > 0) {
+                    document.getElementById('runBtn').disabled = false;
+                    indexNameFromData = data.data.name || code.toUpperCase();
+                    document.getElementById('mainTitle').innerText = `📈 ${indexNameFromData} 回测系统 (直连版)`;
+                    
+                    // 并且巧妙地抓取了指数的中文名！
+                    alert(`✅ 获取成功！系统自动识别名称：【${indexNameFromData}】\n共加载 ${globalData.length} 个交易日数据。`);
+
+                    let prices = globalData.map(d => d.close);
+                    let avgPrice = prices.reduce((a, b) => a + b, 0) / prices.length;
+                    document.getElementById('s_buyPoint').value = Math.floor(avgPrice * 0.85);
+                    document.getElementById('s_sellPoint').value = Math.floor(avgPrice * 1.15);
+                }
+            } catch (e) {
+                document.getElementById('loading').style.display = 'none';
+                alert(`❌ 数据解析失败: ${e.message}`);
+            }
+        };
+
+        // 网络错误处理
+        script.onerror = function() {
+            delete window[callbackName];
+            document.body.removeChild(script);
+            document.getElementById('loading').style.display = 'none';
+            alert("❌ 网络请求失败，请检查您的网络连接");
+        };
+
+        // 发射脚本请求
+        script.src = url;
+        document.body.appendChild(script);
     }
 
     function runSimulation() {
