@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>指数策略回测系统 (稳定交互版)</title>
+    <title>指数策略回测系统</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
@@ -95,7 +95,7 @@
             <div class="form-group">
                 <label>2. 交易核心模式</label>
                 <select id="tradeMode" onchange="toggleInputs()">
-                    <option value="manual" style="background:#eff6ff; font-weight:bold;">✋ 自主交易 (图表左键交互买卖)</option>
+                    <option value="manual" style="background:#eff6ff; font-weight:bold;">✋ 自主交易 (图表交互买卖)</option>
                     <option value="left">📉 左侧抄底 (越跌越买)</option>
                     <option value="right">📈 右侧确认 (先跌后涨买)</option>
                     <option value="dca" selected>⏳ 定期定额 (无脑定投)</option>
@@ -202,7 +202,7 @@
         <div class="chart-title">🆚 策略收益率 vs 指数涨跌幅</div>
         <div class="chart-container"><canvas id="compareChart"></canvas></div>
         <hr style="margin: 40px 0; border: 0; border-top: 1px solid #eee;">
-        <div class="chart-title">💰 总资产曲线 vs 真金白银投入本金</div>
+        <div class="chart-title">💰 总资产曲线 vs 投入本金</div>
         <div class="chart-container"><canvas id="valueChart"></canvas></div>
     </div>
 
@@ -339,7 +339,7 @@
                     let displayName = inputVal.split(' (')[0];
                     if(!displayName || displayName.match(/^[a-zA-Z0-9]+$/)) displayName = indexNameFromData;
 
-                    document.getElementById('mainTitle').innerText = `📈 ${displayName} 回测系统 (直连版)`;
+                    document.getElementById('mainTitle').innerText = `📈 ${displayName} 回测系统 `;
                     manualTrades = []; closePopup();
                     
                     alert(`✅ 获取成功！成功拉取【${displayName}】历史数据。`);
