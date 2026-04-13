@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>指数策略回测系统 (专业可缩放版)</title>
+    <title>指数策略回测系统 (稳定交互版)</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
@@ -71,13 +71,6 @@
         .trade-popup .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
         .trade-popup .btn-small { flex: 1; padding: 8px 0; font-size: 0.9rem; border-radius: 6px; font-weight: bold; cursor: pointer; border: none;}
         .trade-popup .btn-full { flex: 1 1 100%; }
-        
-        .btn-reset-zoom {
-            position: absolute; right: 0; padding: 6px 12px; font-size: 0.85rem; 
-            background: #4b5563; color: white; border: none; border-radius: 6px; 
-            cursor: pointer; display: none; transition: background 0.2s;
-        }
-        .btn-reset-zoom:hover { background: #374151; }
     </style>
 </head>
 <body>
@@ -180,7 +173,6 @@
     <div class="card" id="chartsCard" style="display: none;">
         <div class="chart-title">
             <span id="mainChartTitle">📊 指数走势与买卖点 (🔴买入，🟢止盈)</span>
-            <button class="btn-reset-zoom" id="resetZoomBtn" onclick="resetChartZoom()">🔍 还原全局视图</button>
         </div>
         
         <div class="chart-container" style="position: relative;">
@@ -350,9 +342,6 @@
                     document.getElementById('mainTitle').innerText = `📈 ${displayName} 回测系统 (直连版)`;
                     manualTrades = []; closePopup();
                     
-                    // 获取新数据时，强制隐藏还原按钮，确保是全局视图
-                    document.getElementById('resetZoomBtn').style.display = 'none';
-                    
                     alert(`✅ 获取成功！成功拉取【${displayName}】历史数据。`);
 
                     let prices = globalData.map(d => d.close);
@@ -372,8 +361,6 @@
     function runSimulation() {
         if(document.getElementById('tradeMode').value !== 'manual') manualTrades = []; 
         calculateAndRender();
-        // 只有显式点击主按钮回测时，才重置缩放（因为换了年份等宏观条件）
-        resetChartZoom();
     }
     
     function clearManualTrades() {
@@ -635,33 +622,14 @@
 
     function closePopup() { document.getElementById('tradePopup').style.display = 'none'; }
 
-    // 🔥 完美修复：彻底清空边界并重置内部缩放状态
-    function resetChartZoom() {
-        if(indexChartInst) {
-            indexChartInst.options.scales.x.min = undefined;
-            indexChartInst.options.scales.x.max = undefined;
-            indexChartInst.resetZoom();
-            indexChartInst.update();
-            document.getElementById('resetZoomBtn').style.display = 'none';
-        }
-    }
-
     function renderCharts(labels, indexPointsData, radiuses, pointColors, stratReturn, idxReturn, valData, costData) {
         let displayName = document.getElementById('searchInput').value.split(' (')[0];
         if(!displayName || displayName.match(/^[a-zA-Z0-9]+$/)) displayName = "标的";
         let isManualMode = document.getElementById('tradeMode').value === 'manual';
 
-        // 🔥 修复点：通过判断还原按钮是否显示，来决定我们要不要保持用户的缩放视野
-        let isZoomed = document.getElementById('resetZoomBtn').style.display === 'block';
-        let oldMinX = undefined; let oldMaxX = undefined;
-        
-        if (isZoomed && indexChartInst && indexChartInst.scales.x) {
-            oldMinX = indexChartInst.scales.x.min;
-            oldMaxX = indexChartInst.scales.x.max;
-        }
-
         if(indexChartInst) indexChartInst.destroy();
         
+        // 彻底清除了关于保持坐标轴的冗余配置
         indexChartInst = new Chart(document.getElementById('indexChart').getContext('2d'), {
             type: 'line', 
             data: { 
@@ -674,23 +642,8 @@
                 interaction: { mode: 'index', intersect: false },
                 plugins: {
                     zoom: {
-                        pan: {
-                            enabled: true,
-                            mode: 'x', 
-                            onPan: function() { document.getElementById('resetZoomBtn').style.display = 'block'; }
-                        },
-                        zoom: {
-                            wheel: { enabled: true }, 
-                            pinch: { enabled: true }, 
-                            mode: 'x', 
-                            onZoom: function() { document.getElementById('resetZoomBtn').style.display = 'block'; }
-                        }
-                    }
-                },
-                scales: {
-                    x: {
-                        // 如果用户放大过，保持他的放大区间；否则交给 Chart.js 自动计算全局
-                        ...(isZoomed && { min: oldMinX, max: oldMaxX })
+                        pan: { enabled: true, mode: 'x' },
+                        zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' }
                     }
                 },
                 onClick: (e, elements, chart) => {
