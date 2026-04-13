@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>指数策略回测系统 (全自动直连版)</title>
+    <title>指数策略回测系统 (高级图表交互版)</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -26,7 +26,7 @@
         .btn:hover { background-color: #1d4ed8; }
         .btn:disabled { background-color: #93c5fd; cursor: not-allowed; }
         
-        /* 🔥 智能下拉框样式 */
+        /* 智能下拉框样式 */
         .search-wrapper { position: relative; flex: 1; }
         .suggest-list { 
             position: absolute; top: 100%; left: 0; right: 0; 
@@ -56,12 +56,27 @@
         .tp-section { background: #f8fafc; padding: 16px; border-radius: 8px; border: 1px solid #e2e8f0; margin-top: 10px; }
         .tp-details { opacity: 0.5; pointer-events: none; transition: all 0.3s; }
         .tp-details.active { opacity: 1; pointer-events: auto; }
+
+        /* 🔥 新增：图表悬浮交互面板样式 */
+        .trade-popup {
+            position: absolute; background: rgba(255, 255, 255, 0.95);
+            border: 1px solid var(--border-color); box-shadow: 0 10px 25px -5px rgba(0,0,0,0.2);
+            border-radius: 10px; padding: 16px; width: 260px; z-index: 100;
+            backdrop-filter: blur(8px); display: none; pointer-events: auto;
+            transition: opacity 0.2s; font-size: 0.95rem;
+        }
+        .trade-popup h4 { margin: 0 0 12px 0; color: #1e3a8a; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; font-size: 1.05rem;}
+        .trade-popup .row { display: flex; justify-content: space-between; margin-bottom: 8px; }
+        .trade-popup .row span { color: #6b7280; }
+        .trade-popup .row strong { color: #111827; }
+        .trade-popup .actions { display: flex; gap: 8px; margin-top: 12px; }
+        .trade-popup .btn-small { flex: 1; padding: 8px 0; font-size: 0.9rem; border-radius: 6px; font-weight: bold; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1 id="mainTitle">📈 智能策略回测系统 (极速直连版)</h1>
+    <h1 id="mainTitle">📈 股票/基金 交易回测系统</h1>
 
     <div class="card">
         <div class="control-grid" style="border-bottom: 1px solid #eee; padding-bottom: 16px;">
@@ -75,13 +90,12 @@
                     </div>
                     <button class="btn" style="margin-top: 0; width: 120px; padding: 10px;" id="pullBtn" onclick="fetchDataFromAPI()">极速拉取</button>
                 </div>
-                <div style="font-size: 0.75rem; color: #9ca3af; margin-top: 6px;">输入后请在下拉列表中点击选择，完美支持 A股 / 港股 / 美股 / ETF基金 / 各类指数</div>
             </div>
 
             <div class="form-group">
                 <label>2. 交易核心模式</label>
                 <select id="tradeMode" onchange="toggleInputs()">
-                    <option value="manual" style="background:#eff6ff; font-weight:bold;">✋ 自主交易 (图表交互买卖)</option>
+                    <option value="manual" style="background:#eff6ff; font-weight:bold;">✋ 自主交易 (图表左键交互买卖)</option>
                     <option value="left">📉 左侧抄底 (越跌越买)</option>
                     <option value="right">📈 右侧确认 (先跌后涨买)</option>
                     <option value="dca" selected>⏳ 定期定额 (无脑定投)</option>
@@ -122,17 +136,12 @@
             <div class="form-group"><label>首次建仓投入(元)</label><input type="number" id="s_amt" value="10000" step="1000"></div>
         </div>
         
-        <div class="control-grid" id="manualControls" style="display: none; background: #eff6ff; padding: 16px; border-radius: 8px; border: 1px dashed #3b82f6;">
-            <div class="form-group"><label>单笔买入金额 (元)</label><input type="number" id="m_amt" value="10000" step="1000"></div>
-            <div class="form-group">
-                <label>鼠标点击图表执行操作</label>
-                <select id="m_action">
-                    <option value="buy">🔴 鼠标点击走势节点 = 投入金额买入</option>
-                    <option value="sell">🟢 鼠标点击走势节点 = 全部清仓卖出</option>
-                </select>
+        <div class="control-grid" id="manualControls" style="display: none; background: #eff6ff; padding: 16px; border-radius: 8px; border: 1px dashed #3b82f6; align-items: center;">
+            <div style="font-size: 0.95rem; color: #1e40af;">
+                💡 <strong>操作指南：</strong> 点击开始回测生成底图后，<strong>直接在走势折线图上左键点击</strong>，即可唤出悬浮窗进行买卖。
             </div>
             <div class="form-group" style="justify-content: flex-end;">
-                <button class="btn" style="background-color: #ef4444; margin-top: 0; padding: 10px;" onclick="clearManualTrades()">🗑️ 清空走势图上的点击记录</button>
+                <button class="btn" style="background-color: #ef4444; margin-top: 0; padding: 10px;" onclick="clearManualTrades()">🗑️ 清空所有手工点击记录</button>
             </div>
         </div>
 
@@ -147,7 +156,7 @@
             </div>
         </div>
 
-        <button class="btn" id="runBtn" disabled onclick="runSimulation()">🚀 开始回测 / 生成交互图表</button>
+        <button class="btn" id="runBtn" disabled onclick="runSimulation()">🚀 开始回测 / 生成交互底图</button>
         <div id="loading">📡 数据极速拉取中，请稍候...</div>
     </div>
 
@@ -161,7 +170,29 @@
 
     <div class="card" id="chartsCard" style="display: none;">
         <div class="chart-title" id="mainChartTitle">📊 指数走势与买卖点 (🔴买入，🟢止盈)</div>
-        <div class="chart-container"><canvas id="indexChart" style="cursor: crosshair;"></canvas></div>
+        
+        <div class="chart-container" style="position: relative;">
+            <canvas id="indexChart" style="cursor: crosshair;"></canvas>
+            
+            <div id="tradePopup" class="trade-popup">
+                <h4>⚡ 走势图交互交易</h4>
+                <div class="row"><span>当前日期:</span> <strong id="tp_date"></strong></div>
+                <div class="row"><span>股票点位:</span> <strong id="tp_price" style="color: var(--primary-color);"></strong></div>
+                <hr style="border: 0; border-top: 1px dashed #e5e7eb; margin: 10px 0;">
+                <div class="row"><span>当时持仓份额:</span> <strong id="tp_shares"></strong></div>
+                <div class="row"><span>当时的累计收益:</span> <strong id="tp_profit"></strong></div>
+                <div style="margin-top: 12px;">
+                    <label style="font-size: 0.85rem; color: #4b5563; font-weight: bold;">📝 计划买入金额 (元):</label>
+                    <input type="number" id="tp_amt" value="10000" step="1000" style="width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #cbd5e1; border-radius: 4px; margin-top: 4px; outline: none;">
+                </div>
+                <div class="actions">
+                    <button class="btn btn-small" style="background-color: #ef4444; color: white; margin-top: 0; border: none; cursor: pointer;" onclick="executePopupTrade('buy')">🔴 买入</button>
+                    <button class="btn btn-small" style="background-color: #10b981; color: white; margin-top: 0; border: none; cursor: pointer;" onclick="executePopupTrade('sell')">🟢 全部清仓</button>
+                </div>
+                <button class="btn btn-small" style="background-color: #f3f4f6; color: #4b5563; width: 100%; margin-top: 8px; border: 1px solid #d1d5db; cursor: pointer;" onclick="closePopup()">❌ 取消关闭</button>
+            </div>
+        </div>
+        
         <hr style="margin: 40px 0; border: 0; border-top: 1px solid #eee;">
         <div class="chart-title">🆚 策略收益率 vs 指数涨跌幅</div>
         <div class="chart-container"><canvas id="compareChart"></canvas></div>
@@ -183,8 +214,7 @@
 
 <script>
     let globalData = [];
-    let manualTrades = []; // 核心：用于存储自主交易(鼠标点击图表)的记录
-    
+    let manualTrades = []; 
     let compareChartInst = null; let valueChartInst = null; let indexChartInst = null;
     let indexNameFromData = "宽基指数"; 
 
@@ -255,23 +285,18 @@
         document.getElementById('dcaControls').style.display = mode === 'dca' ? 'grid' : 'none';
         document.getElementById('manualControls').style.display = mode === 'manual' ? 'grid' : 'none';
         
-        // 自主交易和波段区间不兼容自动按比例止盈
         document.getElementById('tpSection').style.display = (mode === 'swing' || mode === 'manual') ? 'none' : 'block';
 
         const descEl = document.getElementById('modeDesc');
         if (mode === 'left') descEl.innerHTML = "<strong>左侧抄底逻辑：</strong> 只要单日跌破阈值，立刻执行买入（越跌越买）。";
         else if (mode === 'right') descEl.innerHTML = "<strong>右侧确认逻辑：</strong> 先跌破阈值进入准备状态；之后某日强势反弹涨破阈值，确认底部反转买入。";
         else if (mode === 'swing') descEl.innerHTML = "<strong>波段区间逻辑：</strong> 跌破设定的低点买入，突破设定的高点清仓。全仓进出，不参与自定义比例止盈。";
-        else if (mode === 'manual') descEl.innerHTML = "<strong>自主交易逻辑：</strong> 点击上方【开始回测】生成走势图后，<strong>直接使用鼠标在走势图的点位上点击</strong>，即可模拟真实的按日手动买卖操作！";
+        else if (mode === 'manual') descEl.innerHTML = "<strong>自主交易逻辑：</strong> 点击上方【开始回测】生成走势图后，<strong>直接使用鼠标左键点击走势图节点</strong>，即可呼出交易弹窗进行模拟实盘操作！";
         else descEl.innerHTML = "<strong>定期定额逻辑：</strong> 无视大盘涨跌，每隔固定交易日自动买入。";
         
-        // 更新图表标题提示
-        document.getElementById('mainChartTitle').innerText = mode === 'manual' ? "📊 鼠标点击下方折线即可买卖 (🔴买入，🟢清仓)" : "📊 指数走势与买卖点 (🔴买入，🟢止盈)";
+        document.getElementById('mainChartTitle').innerText = mode === 'manual' ? "🖱️ 请用鼠标左键点击下方折线触发交易 (🔴买入，🟢清仓)" : "📊 指数走势与买卖点 (🔴买入，🟢止盈)";
     }
 
-    // ==========================================
-    // 底层拉取逻辑
-    // ==========================================
     function fetchDataFromAPI() {
         let inputVal = document.getElementById('searchInput').value.trim();
         let secid = document.getElementById('stockCode').value.trim();
@@ -314,9 +339,7 @@
                     if(!displayName || displayName.match(/^[a-zA-Z0-9]+$/)) displayName = indexNameFromData;
 
                     document.getElementById('mainTitle').innerText = `📈 ${displayName} 回测系统 (直连版)`;
-                    
-                    // 获取新数据后清空原有手工记录
-                    manualTrades = [];
+                    manualTrades = []; closePopup();
                     alert(`✅ 获取成功！成功拉取【${displayName}】历史数据。`);
 
                     let prices = globalData.map(d => d.close);
@@ -334,25 +357,20 @@
     }
 
     // ==========================================
-    // 回测引擎及图表渲染 (重构为解耦计算模式)
+    // 回测引擎及图表渲染 
     // ==========================================
     
-    // 初始化回测（点击按钮触发）
     function runSimulation() {
-        // 非自主交易模式，点开始才清空手工记录（防止误触清除）
-        if(document.getElementById('tradeMode').value !== 'manual') {
-            manualTrades = []; 
-        }
+        if(document.getElementById('tradeMode').value !== 'manual') manualTrades = []; 
         calculateAndRender();
     }
     
-    // 清空自主记录
     function clearManualTrades() {
         manualTrades = [];
+        closePopup();
         calculateAndRender();
     }
 
-    // 核心计算并渲染方法
     function calculateAndRender() {
         if (globalData.length === 0) return;
 
@@ -394,7 +412,6 @@
             let actionName = ""; let isBuyDay = false; let isSellDay = false;
             let transactAmount = 0; let injectPrincipal = 0; 
 
-            // 止盈逻辑判定 (自主交易跳过此逻辑)
             if (tpEnable && totalShares > 0) {
                 let avgCost = positionCost / totalShares;
                 if (day.close >= avgCost * (1 + tpThresh / 100)) {
@@ -413,15 +430,14 @@
             let signalBuyAmt = 0;
             
             if (mode === 'manual') {
-                // 核心：读取图表点击捕获的数据
                 const trade = manualTrades.find(t => t.date === day.dateStr);
                 if (trade) {
                     if (trade.type === 'buy') { 
                         signalBuyAmt = trade.amt; 
-                        actionName = "🔴 鼠标点击主动买入"; 
+                        actionName = "🔴 主动买入"; 
                     } else if (trade.type === 'sell' && totalShares > 0) {
                         transactAmount = totalShares * day.close; accountCash += transactAmount; totalShares = 0; positionCost = 0;
-                        actionName = "🟢 鼠标点击主动清仓"; isSellDay = true;
+                        actionName = "🟢 主动全平"; isSellDay = true;
                     }
                 }
             } else if (mode === 'swing') {
@@ -448,7 +464,6 @@
                 }
             }
 
-            // 处理资金买入清算
             if (signalBuyAmt > 0) {
                 let amountFromCash = Math.min(accountCash, signalBuyAmt);
                 injectPrincipal = signalBuyAmt - amountFromCash;
@@ -465,7 +480,6 @@
                 tradeHistory.push({ date: day.dateStr, close: day.close.toFixed(2), action: actionName, amount: transactAmount, cash: accountCash, totalInvest: cumulativePrincipal });
             }
 
-            // 填充图表点数据
             labels.push(day.dateStr);
             indexPointsData.push(day.close.toFixed(2));
 
@@ -475,8 +489,8 @@
             valueData.push(currentAssetValue.toFixed(2)); 
             costData.push(cumulativePrincipal.toFixed(2)); 
             
-            if (isSellDay) { buyPointRadiuses.push(7); buyPointColors.push('#10b981'); } 
-            else if (isBuyDay) { buyPointRadiuses.push(5); buyPointColors.push('#ef4444'); } 
+            if (isSellDay) { buyPointRadiuses.push(8); buyPointColors.push('#10b981'); } 
+            else if (isBuyDay) { buyPointRadiuses.push(6); buyPointColors.push('#ef4444'); } 
             else { buyPointRadiuses.push(0); buyPointColors.push('transparent'); }
 
             let indexReturn = ((day.close - baseIndexClose) / baseIndexClose) * 100;
@@ -515,6 +529,86 @@
         });
     }
 
+    // ==========================================
+    // 图表左键点击事件及弹窗业务逻辑
+    // ==========================================
+    function showTradePopup(dateStr, price, clickX, clickY) {
+        const chartContainer = document.getElementById('indexChart').parentElement;
+        const popup = document.getElementById('tradePopup');
+        
+        // 动态定位，防止弹窗溢出画布边缘
+        let popupX = clickX + 15;
+        let popupY = clickY + 15;
+        if (popupX + 270 > chartContainer.offsetWidth) popupX = clickX - 280;
+        if (popupY + 300 > chartContainer.offsetHeight) popupY = clickY - 250;
+        
+        popup.style.left = popupX + 'px';
+        popup.style.top = popupY + 'px';
+        popup.style.display = 'block';
+        
+        document.getElementById('tp_date').innerText = dateStr;
+        document.getElementById('tp_price').innerText = '¥' + price;
+        
+        // --- 动态计算点击当天时刻的真实盈亏 ---
+        let tShares = 0; let tCash = 0; let tInvest = 0;
+        const years = parseInt(document.getElementById('simYears').value);
+        const maxDate = globalData[globalData.length - 1].dateObj;
+        const startDate = new Date(maxDate);
+        startDate.setFullYear(maxDate.getFullYear() - years);
+        const simData = globalData.filter(d => d.dateObj >= startDate);
+
+        for(let i=0; i<simData.length; i++) {
+            let day = simData[i];
+            
+            // 如果跑到点击的那一天，结算状态并跳出
+            if(day.dateStr === dateStr) {
+                let currentAssetValue = (tShares * day.close) + tCash;
+                let profit = currentAssetValue - tInvest;
+                
+                document.getElementById('tp_shares').innerText = tShares.toFixed(2) + ' 份';
+                let pColor = profit >= 0 ? '#db2777' : '#16a34a';
+                let pSign = profit > 0 ? '+' : '';
+                document.getElementById('tp_profit').innerHTML = `<span style="color:${pColor}; font-weight:bold;">${pSign}¥${profit.toFixed(2)}</span>`;
+                break;
+            }
+            
+            // 回放此前的历史手工订单
+            let trade = manualTrades.find(t => t.date === day.dateStr);
+            if(trade) {
+                if(trade.type === 'buy') {
+                    let amountFromCash = Math.min(tCash, trade.amt);
+                    let inject = trade.amt - amountFromCash;
+                    tCash -= amountFromCash;
+                    tInvest += inject;
+                    tShares += trade.amt / day.close;
+                } else if(trade.type === 'sell' && tShares > 0) {
+                    tCash += tShares * day.close;
+                    tShares = 0;
+                }
+            }
+        }
+    }
+
+    function executePopupTrade(type) {
+        const dateStr = document.getElementById('tp_date').innerText;
+        const amt = parseFloat(document.getElementById('tp_amt').value);
+        
+        // 覆盖同日期的旧交易记录
+        manualTrades = manualTrades.filter(t => t.date !== dateStr);
+        if(type === 'buy') {
+            manualTrades.push({ date: dateStr, type: 'buy', amt: amt });
+        } else if (type === 'sell') {
+            manualTrades.push({ date: dateStr, type: 'sell', amt: 0 });
+        }
+        
+        closePopup();
+        calculateAndRender();
+    }
+
+    function closePopup() {
+        document.getElementById('tradePopup').style.display = 'none';
+    }
+
     function renderCharts(labels, indexPointsData, radiuses, pointColors, stratReturn, idxReturn, valData, costData) {
         let displayName = document.getElementById('searchInput').value.split(' (')[0];
         if(!displayName || displayName.match(/^[a-zA-Z0-9]+$/)) displayName = "标的";
@@ -530,24 +624,21 @@
             options: { 
                 responsive: true, 
                 maintainAspectRatio: false, 
-                // 核心：自主交易模式下关闭图表重绘动画，让点击秒级响应，消除闪烁感
-                animation: { duration: isManualMode ? 0 : 1000 },
+                animation: { duration: isManualMode ? 0 : 1000 }, // 手工模式关闭重绘动画防止卡顿
                 interaction: { mode: 'index', intersect: false },
                 onClick: (e, elements, chart) => {
-                    // 只有在自主交易模式下，且点击到了某个具体的日期节点才触发
+                    // 仅当开启手工交易模式并且点中具体日期节点时，触发弹窗
                     if (!isManualMode || elements.length === 0) return;
                     
                     const dataIndex = elements[0].index;
-                    const dateStr = chart.data.labels[dataIndex]; // 精准拿到对应日期
-                    const action = document.getElementById('m_action').value;
-                    const amt = parseFloat(document.getElementById('m_amt').value);
-
-                    // 覆盖该日期的旧记录并推入新记录
-                    manualTrades = manualTrades.filter(t => t.date !== dateStr);
-                    manualTrades.push({ date: dateStr, type: action, amt: amt });
+                    const dateStr = chart.data.labels[dataIndex]; 
+                    const price = chart.data.datasets[0].data[dataIndex];
                     
-                    // 重新执行回测计算并极速渲染图表
-                    calculateAndRender();
+                    // 获取点击的相对画布坐标，用于弹窗定位
+                    const clickX = elements[0].element.x;
+                    const clickY = elements[0].element.y;
+                    
+                    showTradePopup(dateStr, price, clickX, clickY);
                 }
             }
         });
@@ -571,7 +662,6 @@
         });
     }
     
-    // 初始化页面时设置默认显示
     toggleInputs();
 </script>
 </body>
