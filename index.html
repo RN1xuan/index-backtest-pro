@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>指数策略回测系统</title>
+    <title>指数策略回测系统 (全自动直连版)</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -26,7 +26,7 @@
         .btn:hover { background-color: #1d4ed8; }
         .btn:disabled { background-color: #93c5fd; cursor: not-allowed; }
         
-        /* 🔥 全新设计的智能下拉框样式 */
+        /* 🔥 智能下拉框样式 */
         .search-wrapper { position: relative; flex: 1; }
         .suggest-list { 
             position: absolute; top: 100%; left: 0; right: 0; 
@@ -61,7 +61,7 @@
 <body>
 
 <div class="container">
-    <h1 id="mainTitle">📈 股票/基金 交易回测系统</h1>
+    <h1 id="mainTitle">📈 智能策略回测系统 (极速直连版)</h1>
 
     <div class="card">
         <div class="control-grid" style="border-bottom: 1px solid #eee; padding-bottom: 16px;">
@@ -73,7 +73,7 @@
                         <ul id="suggestList" class="suggest-list"></ul>
                         <input type="hidden" id="stockCode" value="1.000300">
                     </div>
-                    <button class="btn" style="margin-top: 0; width: 120px; padding: 10px;" id="pullBtn" onclick="fetchDataFromAPI()">拉取</button>
+                    <button class="btn" style="margin-top: 0; width: 120px; padding: 10px;" id="pullBtn" onclick="fetchDataFromAPI()">极速拉取</button>
                 </div>
                 <div style="font-size: 0.75rem; color: #9ca3af; margin-top: 6px;">输入后请在下拉列表中点击选择，完美支持 A股 / 港股 / 美股 / ETF基金 / 各类指数</div>
             </div>
@@ -81,6 +81,7 @@
             <div class="form-group">
                 <label>2. 交易核心模式</label>
                 <select id="tradeMode" onchange="toggleInputs()">
+                    <option value="manual" style="background:#eff6ff; font-weight:bold;">✋ 自主交易 (图表交互买卖)</option>
                     <option value="left">📉 左侧抄底 (越跌越买)</option>
                     <option value="right">📈 右侧确认 (先跌后涨买)</option>
                     <option value="dca" selected>⏳ 定期定额 (无脑定投)</option>
@@ -120,6 +121,20 @@
             <div class="form-group"><label>最高卖出点位</label><input type="number" id="s_sellPoint" value="4000" step="10"></div>
             <div class="form-group"><label>首次建仓投入(元)</label><input type="number" id="s_amt" value="10000" step="1000"></div>
         </div>
+        
+        <div class="control-grid" id="manualControls" style="display: none; background: #eff6ff; padding: 16px; border-radius: 8px; border: 1px dashed #3b82f6;">
+            <div class="form-group"><label>单笔买入金额 (元)</label><input type="number" id="m_amt" value="10000" step="1000"></div>
+            <div class="form-group">
+                <label>鼠标点击图表执行操作</label>
+                <select id="m_action">
+                    <option value="buy">🔴 鼠标点击走势节点 = 投入金额买入</option>
+                    <option value="sell">🟢 鼠标点击走势节点 = 全部清仓卖出</option>
+                </select>
+            </div>
+            <div class="form-group" style="justify-content: flex-end;">
+                <button class="btn" style="background-color: #ef4444; margin-top: 0; padding: 10px;" onclick="clearManualTrades()">🗑️ 清空走势图上的点击记录</button>
+            </div>
+        </div>
 
         <div class="tp-section" id="tpSection">
             <label class="checkbox-label">
@@ -132,7 +147,7 @@
             </div>
         </div>
 
-        <button class="btn" id="runBtn" disabled onclick="runSimulation()">🚀 开始回测</button>
+        <button class="btn" id="runBtn" disabled onclick="runSimulation()">🚀 开始回测 / 生成交互图表</button>
         <div id="loading">📡 数据极速拉取中，请稍候...</div>
     </div>
 
@@ -145,13 +160,13 @@
     </div>
 
     <div class="card" id="chartsCard" style="display: none;">
-        <div class="chart-title">📊 指数走势与买卖点 (🔴买入，🟢止盈)</div>
-        <div class="chart-container"><canvas id="indexChart"></canvas></div>
+        <div class="chart-title" id="mainChartTitle">📊 指数走势与买卖点 (🔴买入，🟢止盈)</div>
+        <div class="chart-container"><canvas id="indexChart" style="cursor: crosshair;"></canvas></div>
         <hr style="margin: 40px 0; border: 0; border-top: 1px solid #eee;">
         <div class="chart-title">🆚 策略收益率 vs 指数涨跌幅</div>
         <div class="chart-container"><canvas id="compareChart"></canvas></div>
         <hr style="margin: 40px 0; border: 0; border-top: 1px solid #eee;">
-        <div class="chart-title">💰 总资产曲线 vs 投入本金</div>
+        <div class="chart-title">💰 总资产曲线 vs 真金白银投入本金</div>
         <div class="chart-container"><canvas id="valueChart"></canvas></div>
     </div>
 
@@ -168,119 +183,62 @@
 
 <script>
     let globalData = [];
+    let manualTrades = []; // 核心：用于存储自主交易(鼠标点击图表)的记录
+    
     let compareChartInst = null; let valueChartInst = null; let indexChartInst = null;
     let indexNameFromData = "宽基指数"; 
 
     // ==========================================
-    // 🔥 核心升级1：东方财富原生智能模糊搜索
+    // 东方财富原生智能模糊搜索
     // ==========================================
     let searchTimeout = null;
-    // ==========================================
-    // 补充缺失的：防抖函数与东方财富搜索接口调用
-    // ==========================================
+    
     function debounceSearch() {
-        // 清除上一次的定时器（防抖核心：用户连续输入时不发请求）
         if (searchTimeout) clearTimeout(searchTimeout);
-        
-        // 设置新的定时器，延迟 300 毫秒后执行真正的搜索
-        searchTimeout = setTimeout(() => {
-            fetchSuggestions();
-        }, 300);
+        searchTimeout = setTimeout(() => { fetchSuggestions(); }, 300);
     }
 
     function fetchSuggestions() {
         const keyword = document.getElementById('searchInput').value.trim();
         const list = document.getElementById('suggestList');
-        
-        // 如果输入为空，隐藏下拉列表并退出
-        if (!keyword) {
-            list.style.display = 'none';
-            return;
-        }
+        if (!keyword) { list.style.display = 'none'; return; }
 
-        // 使用 JSONP 跨域请求东方财富的搜索建议接口
         const callbackName = 'jsonp_suggest_' + Math.round(1000000 * Math.random());
-        // 这是东方财富公开的搜索建议 API，token 为固定公用 token
         const url = `https://searchapi.eastmoney.com/api/suggest/get?input=${encodeURIComponent(keyword)}&type=14&token=D43BF722C8E33BDC906FB84D85E326E8&count=10&cb=${callbackName}`;
-        
         const script = document.createElement('script');
 
         window[callbackName] = function(data) {
-            delete window[callbackName];
-            document.body.removeChild(script);
-            // 请求成功后，调用代码中原有的 renderSuggests 函数渲染列表
-            renderSuggests(data);
+            delete window[callbackName]; document.body.removeChild(script); renderSuggests(data);
         };
-
-        script.onerror = function() {
-            delete window[callbackName];
-            document.body.removeChild(script);
-        };
-
-        script.src = url;
-        document.body.appendChild(script);
+        script.onerror = function() { delete window[callbackName]; document.body.removeChild(script); };
+        script.src = url; document.body.appendChild(script);
     }
 
-// 1. 优化后的渲染函数：确保显示所有匹配项
-function renderSuggests(data) {
-    const list = document.getElementById('suggestList');
-    list.innerHTML = '';
-    
-    // 检查是否有数据返回
-    if (!data || !data.QuotationCodeTable || !data.QuotationCodeTable.Data || data.QuotationCodeTable.Data.length === 0) { 
-        list.style.display = 'none'; 
-        return; 
-    }
-    
-    // 遍历所有返回的匹配项
-    data.QuotationCodeTable.Data.forEach(item => {
-        const li = document.createElement('li');
-        li.style.display = 'flex';
-        li.style.justifyContent = 'space-between';
-        li.style.alignItems = 'center';
-        li.style.padding = '10px 15px';
-        li.style.borderBottom = '1px solid #f0f0f0';
-
-        // 构造显示内容：左侧名称代码，右侧类型标识
-        li.innerHTML = `
-            <div>
-                <span style="font-weight:bold; color:#333;">${item.Name}</span>
-                <span style="color:#888; font-size:12px; margin-left:8px;">${item.Code}</span>
-            </div>
-            <div style="font-size:11px; color:#2563eb; background:#eff6ff; padding:2px 6px; border-radius:4px;">
-                ${item.SecurityTypeName || '标的'}
-            </div>
-        `;
-
-        // 核心交互：点击后精准绑定 QuoteID
-        li.onclick = () => {
-            document.getElementById('searchInput').value = `${item.Name} (${item.Code})`;
-            document.getElementById('stockCode').value = item.QuoteID; // 精准 ID
-            list.style.display = 'none';
-            document.getElementById('pullBtn').disabled = false;
-            document.getElementById('pullBtn').focus();
-        };
-        list.appendChild(li);
-    });
-    
-    list.style.display = 'block';
-}
-
-// 2. CSS 建议：确保列表可滚动
-// 在 <style> 标签中找到 .suggest-list，确保包含以下属性：
-/*
-.suggest-list {
-    max-height: 300px;
-    overflow-y: auto;
-    ...
-}
-*/
-
-    // 点击页面其他地方，自动收起下拉框
-    document.addEventListener('click', (e) => {
-        if (!e.target.closest('.search-wrapper')) {
-            document.getElementById('suggestList').style.display = 'none';
+    function renderSuggests(data) {
+        const list = document.getElementById('suggestList');
+        list.innerHTML = '';
+        if (!data || !data.QuotationCodeTable || !data.QuotationCodeTable.Data || data.QuotationCodeTable.Data.length === 0) { 
+            list.style.display = 'none'; return; 
         }
+        data.QuotationCodeTable.Data.forEach(item => {
+            const li = document.createElement('li');
+            li.style.display = 'flex'; li.style.justifyContent = 'space-between'; li.style.alignItems = 'center';
+            li.style.padding = '10px 15px'; li.style.borderBottom = '1px solid #f0f0f0';
+            li.innerHTML = `<div><span style="font-weight:bold; color:#333;">${item.Name}</span><span style="color:#888; font-size:12px; margin-left:8px;">${item.Code}</span></div><div style="font-size:11px; color:#2563eb; background:#eff6ff; padding:2px 6px; border-radius:4px;">${item.SecurityTypeName || '标的'}</div>`;
+            li.onclick = () => {
+                document.getElementById('searchInput').value = `${item.Name} (${item.Code})`;
+                document.getElementById('stockCode').value = item.QuoteID; 
+                list.style.display = 'none';
+                document.getElementById('pullBtn').disabled = false;
+                document.getElementById('pullBtn').focus();
+            };
+            list.appendChild(li);
+        });
+        list.style.display = 'block';
+    }
+
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.search-wrapper')) document.getElementById('suggestList').style.display = 'none';
     });
 
     function toggleTP() {
@@ -295,23 +253,29 @@ function renderSuggests(data) {
         document.getElementById('rightControls').style.display = mode === 'right' ? 'grid' : 'none';
         document.getElementById('swingControls').style.display = mode === 'swing' ? 'grid' : 'none';
         document.getElementById('dcaControls').style.display = mode === 'dca' ? 'grid' : 'none';
-        document.getElementById('tpSection').style.display = mode === 'swing' ? 'none' : 'block';
+        document.getElementById('manualControls').style.display = mode === 'manual' ? 'grid' : 'none';
+        
+        // 自主交易和波段区间不兼容自动按比例止盈
+        document.getElementById('tpSection').style.display = (mode === 'swing' || mode === 'manual') ? 'none' : 'block';
 
         const descEl = document.getElementById('modeDesc');
         if (mode === 'left') descEl.innerHTML = "<strong>左侧抄底逻辑：</strong> 只要单日跌破阈值，立刻执行买入（越跌越买）。";
         else if (mode === 'right') descEl.innerHTML = "<strong>右侧确认逻辑：</strong> 先跌破阈值进入准备状态；之后某日强势反弹涨破阈值，确认底部反转买入。";
         else if (mode === 'swing') descEl.innerHTML = "<strong>波段区间逻辑：</strong> 跌破设定的低点买入，突破设定的高点清仓。全仓进出，不参与自定义比例止盈。";
+        else if (mode === 'manual') descEl.innerHTML = "<strong>自主交易逻辑：</strong> 点击上方【开始回测】生成走势图后，<strong>直接使用鼠标在走势图的点位上点击</strong>，即可模拟真实的按日手动买卖操作！";
         else descEl.innerHTML = "<strong>定期定额逻辑：</strong> 无视大盘涨跌，每隔固定交易日自动买入。";
+        
+        // 更新图表标题提示
+        document.getElementById('mainChartTitle').innerText = mode === 'manual' ? "📊 鼠标点击下方折线即可买卖 (🔴买入，🟢清仓)" : "📊 指数走势与买卖点 (🔴买入，🟢止盈)";
     }
 
     // ==========================================
-    // 🔥 核心升级2：容错率极高的底层拉取逻辑
+    // 底层拉取逻辑
     // ==========================================
     function fetchDataFromAPI() {
         let inputVal = document.getElementById('searchInput').value.trim();
         let secid = document.getElementById('stockCode').value.trim();
 
-        // 智能判断：如果用户手动修改了输入框但没点下拉列表，强行通过正则匹配修复
         let codePart = secid ? (secid.split('.')[1] || secid) : "";
         if (!secid || (!inputVal.includes(codePart) && inputVal !== "")) {
             let pureCode = inputVal.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
@@ -321,7 +285,7 @@ function renderSuggests(data) {
                 if (pureCode.startsWith('6') || pureCode === '000300' || pureCode === '000001') secid = `1.${pureCode}`;
                 else secid = `0.${pureCode}`;
             } else {
-                return alert("⚠️ 请务必在下拉搜索列表中【点击选择】正确的标的！\n（如果您是纯手工敲击代码，请务必带上 sh 或 sz 前缀，例如 sh000300）");
+                return alert("⚠️ 请务必在下拉搜索列表中【点击选择】正确的标的！");
             }
         }
 
@@ -333,41 +297,28 @@ function renderSuggests(data) {
         const script = document.createElement('script');
 
         window[callbackName] = function(data) {
-            delete window[callbackName]; 
-            document.body.removeChild(script);
-
+            delete window[callbackName]; document.body.removeChild(script);
             try {
-                if (!data || !data.data || !data.data.klines || data.data.klines.length === 0) {
-                    throw new Error("无数据返回");
-                }
-
+                if (!data || !data.data || !data.data.klines || data.data.klines.length === 0) throw new Error("无数据返回");
                 globalData = [];
                 const klines = data.data.klines;
-
                 for (let i = 0; i < klines.length; i++) {
                     const parts = klines[i].split(',');
-                    globalData.push({
-                        dateObj: new Date(parts[0]),
-                        dateStr: parts[0],
-                        close: parseFloat(parts[2]),
-                        change: parseFloat(parts[8]) // 东财自带官方前复权涨跌幅
-                    });
+                    globalData.push({ dateObj: new Date(parts[0]), dateStr: parts[0], close: parseFloat(parts[2]), change: parseFloat(parts[8]) });
                 }
-
                 document.getElementById('loading').style.display = 'none';
-
                 if (globalData.length > 0) {
                     document.getElementById('runBtn').disabled = false;
                     indexNameFromData = data.data.name || inputVal;
-                    
-                    // 让界面标题直接显示漂亮的中文名
                     let displayName = inputVal.split(' (')[0];
                     if(!displayName || displayName.match(/^[a-zA-Z0-9]+$/)) displayName = indexNameFromData;
 
                     document.getElementById('mainTitle').innerText = `📈 ${displayName} 回测系统 (直连版)`;
+                    
+                    // 获取新数据后清空原有手工记录
+                    manualTrades = [];
                     alert(`✅ 获取成功！成功拉取【${displayName}】历史数据。`);
 
-                    // 自动重置波段预测点位
                     let prices = globalData.map(d => d.close);
                     let avgPrice = prices.reduce((a, b) => a + b, 0) / prices.length;
                     document.getElementById('s_buyPoint').value = Math.floor(avgPrice * 0.85);
@@ -378,25 +329,37 @@ function renderSuggests(data) {
                 alert(`❌ 获取失败: 该标的可能刚上市，或者代码格式不正确。`);
             }
         };
-
-        script.onerror = function() {
-            delete window[callbackName]; document.body.removeChild(script); document.getElementById('loading').style.display = 'none';
-            alert("❌ 网络请求失败，请检查网络");
-        };
-
+        script.onerror = function() { delete window[callbackName]; document.body.removeChild(script); document.getElementById('loading').style.display = 'none'; alert("❌ 网络请求失败，请检查网络"); };
         script.src = url; document.body.appendChild(script);
     }
 
     // ==========================================
-    // 以下为核心回测及图表渲染逻辑 (保持纯正配方)
+    // 回测引擎及图表渲染 (重构为解耦计算模式)
     // ==========================================
+    
+    // 初始化回测（点击按钮触发）
     function runSimulation() {
+        // 非自主交易模式，点开始才清空手工记录（防止误触清除）
+        if(document.getElementById('tradeMode').value !== 'manual') {
+            manualTrades = []; 
+        }
+        calculateAndRender();
+    }
+    
+    // 清空自主记录
+    function clearManualTrades() {
+        manualTrades = [];
+        calculateAndRender();
+    }
+
+    // 核心计算并渲染方法
+    function calculateAndRender() {
         if (globalData.length === 0) return;
 
         const mode = document.getElementById('tradeMode').value;
         const years = parseInt(document.getElementById('simYears').value);
         
-        const tpEnable = document.getElementById('tpEnable').checked && mode !== 'swing';
+        const tpEnable = document.getElementById('tpEnable').checked && mode !== 'swing' && mode !== 'manual';
         const tpThresh = parseFloat(document.getElementById('tpThreshold').value);
         const tpRatio = parseFloat(document.getElementById('tpRatio').value);
 
@@ -405,11 +368,7 @@ function renderSuggests(data) {
         startDate.setFullYear(maxDate.getFullYear() - years);
         const simData = globalData.filter(d => d.dateObj >= startDate);
 
-        let cumulativePrincipal = 0; 
-        let positionCost = 0;        
-        let totalShares = 0;         
-        let accountCash = 0;         
-        
+        let cumulativePrincipal = 0; let positionCost = 0; let totalShares = 0; let accountCash = 0; 
         let buyTimes = 0; let hasBoughtFirst = false; let tradeHistory = [];
         let r_firstDropMet = false; let r_subDropMet = false;   
 
@@ -422,7 +381,7 @@ function renderSuggests(data) {
             p.sDrop = parseFloat(document.getElementById('r_subDrop').value); p.sRise = parseFloat(document.getElementById('r_subRise').value); p.sAmt = parseFloat(document.getElementById('r_subAmt').value);
         } else if (mode === 'swing') {
             p.lowPoint = parseFloat(document.getElementById('s_buyPoint').value); p.highPoint = parseFloat(document.getElementById('s_sellPoint').value); p.amt = parseFloat(document.getElementById('s_amt').value);
-        } else {
+        } else if (mode === 'dca') {
             p.interval = parseInt(document.getElementById('dcaInterval').value); p.dcaAmt = parseFloat(document.getElementById('dcaAmount').value);
         }
 
@@ -433,9 +392,9 @@ function renderSuggests(data) {
 
         simData.forEach((day, index) => {
             let actionName = ""; let isBuyDay = false; let isSellDay = false;
-            let transactAmount = 0;  
-            let injectPrincipal = 0; 
+            let transactAmount = 0; let injectPrincipal = 0; 
 
+            // 止盈逻辑判定 (自主交易跳过此逻辑)
             if (tpEnable && totalShares > 0) {
                 let avgCost = positionCost / totalShares;
                 if (day.close >= avgCost * (1 + tpThresh / 100)) {
@@ -446,15 +405,26 @@ function renderSuggests(data) {
                     positionCost = totalShares * day.close; 
                     
                     actionName = `🟢 达到目标, 止盈${tpRatio}%`;
-                    isSellDay = true;
-                    buyTimes++;
+                    isSellDay = true; buyTimes++;
                     tradeHistory.push({ date: day.dateStr, close: day.close.toFixed(2), action: actionName, amount: transactAmount, cash: accountCash, totalInvest: cumulativePrincipal });
                 }
             }
 
             let signalBuyAmt = 0;
             
-            if (mode === 'swing') {
+            if (mode === 'manual') {
+                // 核心：读取图表点击捕获的数据
+                const trade = manualTrades.find(t => t.date === day.dateStr);
+                if (trade) {
+                    if (trade.type === 'buy') { 
+                        signalBuyAmt = trade.amt; 
+                        actionName = "🔴 鼠标点击主动买入"; 
+                    } else if (trade.type === 'sell' && totalShares > 0) {
+                        transactAmount = totalShares * day.close; accountCash += transactAmount; totalShares = 0; positionCost = 0;
+                        actionName = "🟢 鼠标点击主动清仓"; isSellDay = true;
+                    }
+                }
+            } else if (mode === 'swing') {
                 if (totalShares === 0 && day.close <= p.lowPoint) { signalBuyAmt = accountCash > 0 ? accountCash : p.amt; actionName = "🔴 跌破低点全仓买入"; } 
                 else if (totalShares > 0 && day.close >= p.highPoint) {
                     transactAmount = totalShares * day.close; accountCash += transactAmount; totalShares = 0; positionCost = 0;
@@ -478,6 +448,7 @@ function renderSuggests(data) {
                 }
             }
 
+            // 处理资金买入清算
             if (signalBuyAmt > 0) {
                 let amountFromCash = Math.min(accountCash, signalBuyAmt);
                 injectPrincipal = signalBuyAmt - amountFromCash;
@@ -489,11 +460,12 @@ function renderSuggests(data) {
                 
                 isBuyDay = true; buyTimes++;
                 tradeHistory.push({ date: day.dateStr, close: day.close.toFixed(2), action: actionName, amount: signalBuyAmt, cash: accountCash, totalInvest: cumulativePrincipal });
-            } else if (isSellDay && mode === 'swing') {
+            } else if (isSellDay && (mode === 'swing' || mode === 'manual')) {
                 buyTimes++;
                 tradeHistory.push({ date: day.dateStr, close: day.close.toFixed(2), action: actionName, amount: transactAmount, cash: accountCash, totalInvest: cumulativePrincipal });
             }
 
+            // 填充图表点数据
             labels.push(day.dateStr);
             indexPointsData.push(day.close.toFixed(2));
 
@@ -546,11 +518,38 @@ function renderSuggests(data) {
     function renderCharts(labels, indexPointsData, radiuses, pointColors, stratReturn, idxReturn, valData, costData) {
         let displayName = document.getElementById('searchInput').value.split(' (')[0];
         if(!displayName || displayName.match(/^[a-zA-Z0-9]+$/)) displayName = "标的";
+        let isManualMode = document.getElementById('tradeMode').value === 'manual';
 
         if(indexChartInst) indexChartInst.destroy();
         indexChartInst = new Chart(document.getElementById('indexChart').getContext('2d'), {
-            type: 'line', data: { labels: labels, datasets: [{ label: `${displayName} 价格走势`, data: indexPointsData, borderColor: '#8b5cf6', backgroundColor: 'rgba(139, 92, 246, 0.1)', borderWidth: 2, fill: true, pointRadius: radiuses, pointBackgroundColor: pointColors, pointBorderColor: pointColors, pointHoverRadius: 8 }] },
-            options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false } }
+            type: 'line', 
+            data: { 
+                labels: labels, 
+                datasets: [{ label: `${displayName} 价格走势`, data: indexPointsData, borderColor: '#8b5cf6', backgroundColor: 'rgba(139, 92, 246, 0.1)', borderWidth: 2, fill: true, pointRadius: radiuses, pointBackgroundColor: pointColors, pointBorderColor: pointColors, pointHoverRadius: 8 }] 
+            },
+            options: { 
+                responsive: true, 
+                maintainAspectRatio: false, 
+                // 核心：自主交易模式下关闭图表重绘动画，让点击秒级响应，消除闪烁感
+                animation: { duration: isManualMode ? 0 : 1000 },
+                interaction: { mode: 'index', intersect: false },
+                onClick: (e, elements, chart) => {
+                    // 只有在自主交易模式下，且点击到了某个具体的日期节点才触发
+                    if (!isManualMode || elements.length === 0) return;
+                    
+                    const dataIndex = elements[0].index;
+                    const dateStr = chart.data.labels[dataIndex]; // 精准拿到对应日期
+                    const action = document.getElementById('m_action').value;
+                    const amt = parseFloat(document.getElementById('m_amt').value);
+
+                    // 覆盖该日期的旧记录并推入新记录
+                    manualTrades = manualTrades.filter(t => t.date !== dateStr);
+                    manualTrades.push({ date: dateStr, type: action, amt: amt });
+                    
+                    // 重新执行回测计算并极速渲染图表
+                    calculateAndRender();
+                }
+            }
         });
 
         if(compareChartInst) compareChartInst.destroy();
@@ -559,7 +558,7 @@ function renderSuggests(data) {
                 { label: '真实本金收益率 (%)', data: stratReturn, borderColor: '#db2777', borderWidth: 2, pointRadius: radiuses, pointBackgroundColor: pointColors, pointBorderColor: pointColors, pointHoverRadius: 8 }, 
                 { label: `${displayName}涨跌幅 (%)`, data: idxReturn, borderColor: '#6b7280', borderDash: [5, 5], borderWidth: 2, pointRadius: 0 } 
             ] },
-            options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': ' + ctx.parsed.y + '%' } } } }
+            options: { animation: { duration: isManualMode ? 0 : 1000 }, responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': ' + ctx.parsed.y + '%' } } } }
         });
 
         if(valueChartInst) valueChartInst.destroy();
@@ -568,9 +567,12 @@ function renderSuggests(data) {
                 { label: '总资产(持仓+现金)', data: valData, borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.1)', fill: true, pointRadius: radiuses, pointBackgroundColor: pointColors, pointBorderColor: pointColors, pointHoverRadius: 8 }, 
                 { label: '真金白银投入 (元)', data: costData, borderColor: '#2563eb', borderDash: [5,5], pointRadius: 0 } 
             ] },
-            options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false } }
+            options: { animation: { duration: isManualMode ? 0 : 1000 }, responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false } }
         });
     }
+    
+    // 初始化页面时设置默认显示
+    toggleInputs();
 </script>
 </body>
 </html>
