@@ -72,7 +72,6 @@
         .trade-popup .btn-small { flex: 1; padding: 8px 0; font-size: 0.9rem; border-radius: 6px; font-weight: bold; cursor: pointer; border: none;}
         .trade-popup .btn-full { flex: 1 1 100%; }
         
-        /* 还原视图按钮样式 */
         .btn-reset-zoom {
             position: absolute; right: 0; padding: 6px 12px; font-size: 0.85rem; 
             background: #4b5563; color: white; border: none; border-radius: 6px; 
@@ -350,7 +349,10 @@
 
                     document.getElementById('mainTitle').innerText = `📈 ${displayName} 回测系统 (直连版)`;
                     manualTrades = []; closePopup();
-                    resetChartZoom();
+                    
+                    // 获取新数据时，强制隐藏还原按钮，确保是全局视图
+                    document.getElementById('resetZoomBtn').style.display = 'none';
+                    
                     alert(`✅ 获取成功！成功拉取【${displayName}】历史数据。`);
 
                     let prices = globalData.map(d => d.close);
@@ -370,6 +372,7 @@
     function runSimulation() {
         if(document.getElementById('tradeMode').value !== 'manual') manualTrades = []; 
         calculateAndRender();
+        // 只有显式点击主按钮回测时，才重置缩放（因为换了年份等宏观条件）
         resetChartZoom();
     }
     
@@ -529,8 +532,6 @@
         const returnRate = cumulativePrincipal > 0 ? (profit / cumulativePrincipal) * 100 : 0;
 
         renderUI(cumulativePrincipal, finalValue, profit, returnRate, accountCash, buyTimes, tradeHistory);
-        
-        // 核心渲染方法更新
         renderCharts(labels, indexPointsData, buyPointRadiuses, buyPointColors, strategyReturnData, indexReturnData, valueData, costData);
     }
 
@@ -629,18 +630,18 @@
         }
         
         closePopup();
-        
-        // 保存当前缩放状态
-        let currentZoomLevel = indexChartInst ? indexChartInst.getZoomLevel() : null;
         calculateAndRender();
     }
 
     function closePopup() { document.getElementById('tradePopup').style.display = 'none'; }
 
-    // 🔥 还原缩放视图的外部函数
+    // 🔥 完美修复：彻底清空边界并重置内部缩放状态
     function resetChartZoom() {
         if(indexChartInst) {
+            indexChartInst.options.scales.x.min = undefined;
+            indexChartInst.options.scales.x.max = undefined;
             indexChartInst.resetZoom();
+            indexChartInst.update();
             document.getElementById('resetZoomBtn').style.display = 'none';
         }
     }
@@ -650,16 +651,17 @@
         if(!displayName || displayName.match(/^[a-zA-Z0-9]+$/)) displayName = "标的";
         let isManualMode = document.getElementById('tradeMode').value === 'manual';
 
-        // 为了在重绘时保持缩放状态，我们需要获取旧实例的边界
-        let oldMinX = null; let oldMaxX = null;
-        if(indexChartInst && indexChartInst.scales.x) {
+        // 🔥 修复点：通过判断还原按钮是否显示，来决定我们要不要保持用户的缩放视野
+        let isZoomed = document.getElementById('resetZoomBtn').style.display === 'block';
+        let oldMinX = undefined; let oldMaxX = undefined;
+        
+        if (isZoomed && indexChartInst && indexChartInst.scales.x) {
             oldMinX = indexChartInst.scales.x.min;
             oldMaxX = indexChartInst.scales.x.max;
         }
 
         if(indexChartInst) indexChartInst.destroy();
         
-        // 🔥 核心图表配置升级：加入 Zoom 插件配置
         indexChartInst = new Chart(document.getElementById('indexChart').getContext('2d'), {
             type: 'line', 
             data: { 
@@ -674,19 +676,22 @@
                     zoom: {
                         pan: {
                             enabled: true,
-                            mode: 'x', // 允许X轴左右平移
+                            mode: 'x', 
                             onPan: function() { document.getElementById('resetZoomBtn').style.display = 'block'; }
                         },
                         zoom: {
-                            wheel: { enabled: true }, // 滚轮缩放
-                            pinch: { enabled: true }, // 触摸屏双指缩放
-                            mode: 'x', // 仅允许X轴时间线缩放
+                            wheel: { enabled: true }, 
+                            pinch: { enabled: true }, 
+                            mode: 'x', 
                             onZoom: function() { document.getElementById('resetZoomBtn').style.display = 'block'; }
                         }
                     }
                 },
                 scales: {
-                    x: { min: oldMinX, max: oldMaxX } // 交易后重绘时，保持刚才的缩放视野
+                    x: {
+                        // 如果用户放大过，保持他的放大区间；否则交给 Chart.js 自动计算全局
+                        ...(isZoomed && { min: oldMinX, max: oldMaxX })
+                    }
                 },
                 onClick: (e, elements, chart) => {
                     if (!isManualMode || elements.length === 0) return;
